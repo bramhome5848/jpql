@@ -12,9 +12,15 @@ public class Member {
     private String userName;
     private int age;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "TEAM_ID")
     private Team team;
+
+    //연간관계 편의 메서드
+    public void changeTeam(Team team) {
+        this.team = team;
+        team.getMembers().add(this);
+    }
 
     @OneToMany(mappedBy = "member")
     List<Order> orders = new ArrayList<>();
@@ -57,5 +63,14 @@ public class Member {
 
     public void setOrders(List<Order> orders) {
         this.orders = orders;
+    }
+
+    @Override
+    public String toString() {
+        return "Member{" +
+                "id=" + id +
+                ", userName='" + userName + '\'' +
+                ", age=" + age +
+                '}';
     }
 }
