@@ -1,6 +1,7 @@
 package jpql;
 
 import javax.persistence.*;
+import java.util.Collection;
 import java.util.List;
 
 public class JpaMain {
@@ -23,7 +24,12 @@ public class JpaMain {
             //function5(em);
             //function6(em);
             //function7(em);
-            function8(em);
+            //function8(em);
+            //function9(em);
+            //function10(em);
+            //function11(em);
+            //function12(em);
+            function13(em);
 
             //빠진 부분
             //enu, 엔티티 타입 사용쿼리
@@ -262,5 +268,275 @@ public class JpaMain {
         for (String s : result) {
             System.out.println("s = " + s);
         }
+    }
+
+    //경로 표현식
+    public static void function9(EntityManager em) {
+
+        Team team = new Team();
+        team.setName("team1");
+        em.persist(team);
+
+        Member member1 = new Member();
+        member1.setUserName("관리자1");
+        member1.setTeam(team);
+        em.persist(member1);
+
+        Member member2 = new Member();
+        member2.setUserName("관리자2");
+        member2.setTeam(team);
+        em.persist(member2);
+
+        em.flush();
+        em.clear();
+
+        //상태필드 검색 -> 경로 탐색의 끝 -> 탐색 종료
+        String query1 = "select m.userName from Member m";
+        List<String> result1 = em.createQuery(query1, String.class)
+                .getResultList();
+
+        //단일 값 연관 경로 -> 묵시적 조인 발생 -> 탐색O
+        //실무 사용시에 조심 -> 튜닝시에 어려움이 있음
+        String query2 = "select m.team from Member m";
+        List<Team> result2 = em.createQuery(query2, Team.class)
+                .getResultList();
+
+        //컬렉션 값 연관 경로 -> 묵시적 내부조인 발생, 탐색X
+        //쿼리 내에서 컬렉션 각각에 대한 접근 불가, 컬렉션 자체에 대한 접근은 가능
+        //따라서 명시적인 Join을 사용해야함 -> query4처럼 사용해야 접근가능
+        String query3 = "select t.members from Team t";
+        Collection result3 = em.createQuery(query3, Collection.class)
+                .getResultList();
+
+        String query4 = "select m.userName from Team t join t.members m";
+        List<String> result4 = em.createQuery(query4, String.class)
+                .getResultList();
+
+        for (String s : result4) {
+            System.out.println("s = " + s);
+        }
+
+        //결론 -> 묵시적 조인이 일어나는 방법은 사용하지 말아야 한다
+        //실제 쿼리 튜닝 해야할 경우 확인이 어렵다
+        //묵시적 조인은 -> 내부 조인만 가능
+    }
+
+    //***** fetch Join *****
+    //jpql에서 성능 최적화를 위해 제공하는 기능
+    //연관된 엔티티나 컬렉션을 SQL 한 번에 함께 조회하는 기능 -> 일종의 한 방 쿼리
+    public static void function10(EntityManager em) {
+
+        Team team1 = new Team();
+        team1.setName("팀A");
+        em.persist(team1);
+
+        Team team2 = new Team();
+        team2.setName("팀B");
+        em.persist(team2);
+
+        Team team3 = new Team();
+        team3.setName("팀C");
+        em.persist(team3);
+
+        Member member1 = new Member();
+        member1.setUserName("회원1");
+        member1.setTeam(team1);
+        em.persist(member1);
+
+        Member member2 = new Member();
+        member2.setUserName("회원2");
+        member2.setTeam(team1);
+        em.persist(member2);
+
+        Member member3 = new Member();
+        member3.setUserName("회원3");
+        member3.setTeam(team2);
+        em.persist(member3);
+
+        Member member4 = new Member();
+        member4.setUserName("회원4");
+        em.persist(member4);
+
+        em.flush();
+        em.clear();
+
+        //String query1 = "select m from Member m";
+        //fetch join
+        String query1 = "select m from Member m join fetch m.team";
+
+        List<Member> members = em.createQuery(query1, Member.class)
+                .getResultList();
+
+        for (Member member : members) {
+            System.out.println("member = " + member.getUserName() + ", " + member.getTeam().getName());
+            //회원1, 팀A(SQL)
+            //회원2, 팀A(1차 캐시)
+            //회원3, 팀B(SQL)
+            //회원 100명 조회 -> 최악의 경우 100명에 대한 팀을 가지고 오는 쿼리가 100번발생 -> 1 + N 문제 발생
+            //단건의 경우 -> LZAY : 1개 조회 -> 조회 + 관련 데이터 조회 -> N+1 발생, EAGER -> 1개 조회 -> 조회
+            //다건의 경우 -> LAZY : N개 조회 -> 조회 + 관련 데이터 조회 -> N+1 발생, EAGER -> N개 조회 -> 조회 + 관련 데이터 조회 -> N+1 문제 발생
+            //fetch join -> 연간관계에 대한 필요 데이터를 한방 조회를 수행 -> 1번만 수행 -> 단건, 다건의 경우에 모두 커버 가능
+            //지연로딩이라도 -> fetch Join이 우선으로 실행됨
+        }
+
+        //1:N의 경우
+        //1:N에 대한 조회시 데이터가 뻥튀기 될 수 있음
+        //1개에 조인되는 여러개의 데이터만큼 row가 출력됨
+        //jpql에 distinct는 중복된 결과를 제거
+        //sql에 ditinct를 추가하거나 애플리케이션에서 엔티티 중복 제거
+        //같은 식별자를 가진 Team 엔티티 제거
+        //fetch join은 연관된 애들을 모두 다 가져오는 것 -> 걸러서 가져오고 싶겠지만 그러면 fetch join을 사용하면 안됨
+        //1대 N의 경우 데이터가 뻥티기 되기 때문에 paging을 사용할 수 없음
+        //Lazy사용시 N+1 발생해결 방법
+        //-> fetch 조인 이외에 또는 @batchsize() 이용 (in절에 조건 걸림)하여 테이블 수만큼으로 줄일 수 있음
+
+        //String query2 = "select t from Team t join fetch t.members";
+        String query2 = "select distinct t from Team t join fetch t.members";
+        List<Team> teams = em.createQuery(query2, Team.class)
+                .getResultList();
+
+        for (Team team : teams) {
+            System.out.println("team = " + team.getName() + " | " + team.getMembers().size());
+            for(Member member : team.getMembers()) {
+                System.out.println("-> " + member);
+            }
+        }
+    }
+
+    //엔티티 직접 사용 쿼리
+    public static void function11(EntityManager em) {
+
+        Team team1 = new Team();
+        team1.setName("팀A");
+        em.persist(team1);
+
+        Team team2 = new Team();
+        team2.setName("팀B");
+        em.persist(team2);
+
+        Team team3 = new Team();
+        team3.setName("팀C");
+        em.persist(team3);
+
+        Member member1 = new Member();
+        member1.setUserName("회원1");
+        member1.setTeam(team1);
+        em.persist(member1);
+
+        Member member2 = new Member();
+        member2.setUserName("회원2");
+        member2.setTeam(team1);
+        em.persist(member2);
+
+        Member member3 = new Member();
+        member3.setUserName("회원3");
+        member3.setTeam(team2);
+        em.persist(member3);
+
+        Member member4 = new Member();
+        member4.setUserName("회원4");
+        em.persist(member4);
+
+        em.flush();
+        em.clear();
+
+        //엔티티 직접 사용 -> 식별자를 이용해서 검색함
+        //String query = "select m from Member m where m = :member";
+        //식별자 직접 사용
+        String query1 = "select m from Member m where m.id = :memberId";
+
+        Member findMember = em.createQuery(query1, Member.class)
+                .setParameter("memberId" , member1.getId())
+                .getSingleResult();
+
+        System.out.println("findMember = " + findMember);
+
+        //외래키 값 사용
+        String query2 = "select m from Member m where m.team = :team";
+        List<Member> memberList = em.createQuery(query2, Member.class)
+                .setParameter("team", team1)
+                .getResultList();
+
+        for (Member member : memberList) {
+            System.out.println("member = " + member.getUserName());
+        }
+    }
+
+    public static void function12(EntityManager em) {
+
+        Team team1 = new Team();
+        team1.setName("팀A");
+        em.persist(team1);
+
+        Team team2 = new Team();
+        team2.setName("팀B");
+        em.persist(team2);
+
+        Team team3 = new Team();
+        team3.setName("팀C");
+        em.persist(team3);
+
+        Member member1 = new Member();
+        member1.setUserName("회원1");
+        member1.setTeam(team1);
+        em.persist(member1);
+
+        Member member2 = new Member();
+        member2.setUserName("회원2");
+        member2.setTeam(team1);
+        em.persist(member2);
+
+        Member member3 = new Member();
+        member3.setUserName("회원3");
+        member3.setTeam(team2);
+        em.persist(member3);
+
+        Member member4 = new Member();
+        member4.setUserName("회원4");
+        em.persist(member4);
+
+        em.flush();
+        em.clear();
+
+        List<Member> resultList = em.createNamedQuery("Member.findByUserName", Member.class)
+                .setParameter("userName", "회원1")
+                .getResultList();
+
+        for (Member member : resultList) {
+            System.out.println("member = " + member);
+        }
+    }
+
+    public static void function13(EntityManager em) {
+
+        Member member1 = new Member();
+        member1.setUserName("회원1");
+        member1.setAge(21);
+        em.persist(member1);
+
+        Member member2 = new Member();
+        member2.setUserName("회원2");
+        member2.setAge(23);
+        em.persist(member2);
+
+        Member member3 = new Member();
+        member3.setUserName("회원3");
+        member3.setAge(31);
+        em.persist(member3);
+
+        //벌크 연산은 영속성 컨텍스트를 무시하고 데이터베이스에 직접 쿼리
+        //벌크 연산을 먼저 실행
+        //벌크 연산 수행 후 영속성 컨텍스트 초기화 -> 영속성에 있는 데이터와 실제 데이터의 동기화가 필요함
+        //영향을 받은 데이터수
+        int count = em.createQuery("update Member m set m.age = 20")
+                .executeUpdate();
+
+        System.out.println("count = " + count);
+
+        //초기화 하지 않으면 영속성 컨텍스트의 값이 그대로 나옴
+        //따라서 벌크 연산수행 후에는 em.clear(); 실행
+        em.clear(); //위에 선언된 것들은 준영속이 되버림
+        Member findMember = em.find(Member.class, member1.getId());
+        System.out.println("findMember.getAge() = " + findMember.getAge());
     }
 }
